@@ -3,8 +3,14 @@ library(MASS)
 
 sbm <- function(filename){
     edges<-as.matrix(read.table(filename,header=FALSE))
-    sbm <- graph_from_edgelist(edges, directed = TRUE)
-    return(sbm)
+    graph <- graph_from_edgelist(edges, directed = TRUE)
+    return(graph)
+}
+
+facebook <- function(filename){
+    edges<-as.matrix(read.table(filename,header=FALSE))+1
+    graph <- graph_from_edgelist(edges, directed = FALSE)
+    return(graph)
 }
 
 create.synthetic <- function(){
@@ -20,6 +26,8 @@ create.synthetic <- function(){
     sbm1000 <- sbm(paste(getwd(),"/synthetic/sbm1000/network.dat"))
     sbm5000 <- sbm(paste(getwd(),"/synthetic/sbm5000/network.dat"))
 
+    facebook <- facebook(paste("/Users/kavery/workspace/noncooperative-spillover/facebook/facebook_combined.txt"))
+
     write.matrix(get.adjacency(small500), paste(getwd(),"synthetic/small500.csv"))
     write.matrix(get.adjacency(small1000), paste(getwd(),"synthetic/small1000.csv"))
     write.matrix(get.adjacency(small5000), paste(getwd(),"synthetic/small5000.csv"))
@@ -31,6 +39,8 @@ create.synthetic <- function(){
     write.matrix(get.adjacency(sbm500), paste(getwd(),"synthetic/sbm500.csv"))
     write.matrix(get.adjacency(sbm1000), paste(getwd(),"synthetic/sbm1000.csv"))
     write.matrix(get.adjacency(sbm5000), paste(getwd(),"synthetic/sbm5000.csv"))
+
+    write.matrix(get.adjacency(facebook), paste("/Users/kavery/workspace/noncooperative-spillover/synthetic/facebook.csv"))
 }
 
 create.synthetic()

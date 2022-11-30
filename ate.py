@@ -5,6 +5,8 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 import copy
 
+np.random.seed(1)
+
 def spillover_probs(ncps, assignments, adjacency_matrix, degrees, transition_matrix):
     non_ncp_treatment = assignments * (1-ncps)
     non_ncp_treatment_trans = np.transpose(non_ncp_treatment) / degrees
@@ -90,16 +92,18 @@ def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adja
     ncp_outcome = outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_matrix, degrees, ncps, stochastic)
     
     lin_ncp = linear_ncp(non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh, cluster_assignments, ncp_outcome)
-    # lin_ncp[np.isnan(lin_ncp)] = 0
-    print(type(lin_ncp))
-    print(lin_ncp.coef_)
-    print(lin_ncp.intercept_)
-    print(lin_ncp)
+    ate_estimate = lin_ncp.coef_[0]+lin_ncp.coef_[1]
+    ate_ncp_bias = lin_ncp.coef_[2]-lin_ncp.coef_[3]
+    # print(lin_ncp.coef_)
+    # print(lin_ncp.intercept_)
+    # print(lin_ncp)
 
     lin_gui = linear(adjacency_matrix, degrees, cluster_assignments, ncp_outcome)
-    # lin_gui[np.isnan(lin_gui)] = 0
-    print(lin_gui.coef_)
-    print(lin_gui)
+    # print(lin_gui.coef_)
+    beta = lin_gui.coef_[0]
+    gamma = lin_gui.coef_[1]
+    ate_estimate_gui = beta+gamma
+    # print(lin_gui)
     # ate_gui = lin_gui
 
     if pattern == "dominating" or index == 0:
@@ -109,7 +113,7 @@ def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adja
     
     ncp_influence = np.sum(adversarial_influence[np.where(ncps==1)])/(len(graph.vs))
 
-    return index, dominate_size, frac_uncovered, ncp_influence, ate_true, ate_ncp_estimate, ate_ncp_gui, gui_beta, gui_gamma
+    return index, max_ncps, frac_uncovered, ncp_influence, ate_without, ate_ncp_bias, ate_estimate_gui, beta, gamma
 
 def check_set(adjacency_matrix, ncps): # check this? 
     adjacency_ncps = np.matmul(adjacency_matrix, np.transpose(ncps)) + np.transpose(ncps)
@@ -161,7 +165,10 @@ def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern=
         else:
             if maximum:
                 i = 1
-                randlist = np.random.shuffle(np.array(range(0,11)))
+                randlist = np.arange(0,11)
+                np.random.shuffle(randlist)
+                print("rand_list")
+                print(rand_list)
                 while not check_set(adjacency_matrix, ncps):
                     ncps[randlist[i]] = 1
                     i += 1
@@ -209,7 +216,8 @@ def experiment(filename, lambda0=-1.5, lambda1=0.75, lambda2=0.5, pattern="rando
     # ate
     #0, graph.properties, matrix(0,1,graph.properties$n), outcome.params, ncp.params, treatment.assignments, stochastic.vars, bias.behavior)$ATE.adv.gui[1]
     # ate(graph, index, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stochastic, pattern="random"):
-    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")
+    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")[6]
+    print(non_ncp_ate)
     if gtype == "facebook":
         ncps = np.zeros((vertices-1,))
         ncp_indices = [1,108,349,415,687,699,1685,1913,3438,3981]
@@ -217,19 +225,36 @@ def experiment(filename, lambda0=-1.5, lambda1=0.75, lambda2=0.5, pattern="rando
     else:
         ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern="dominating", weight="degree", maximum=True)
     print(ncps)
-    sum_ncps = np.sum(ncps)
+    total_ncps = np.sum(ncps==1)
+    print(total_ncps)
 
-    # if pattern == "random":
-    #     for i in 
-    #     ncp_ate = ate(lambda1, lambda2, num_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc)
-    # else: # dominating
+    if pattern == "dominating":
+        for i in range(total_ncps):
+            dom_ncps = np.zeros(len(graph.vs))
+            dom_ncps[np.where(ncps==1)[0:i]] = 1
+            (index, max_ncps, frac_uncovered, ncp_influence, 
+                ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
+                gamma) = ate(graph, i, lambda0, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")
+            print(dom_ncps)
+    else: # random
+        all_rand_ncps = np.zeros(len(graph.vs))
+        rand_select = np.arange(0,len(graph.vs))
+        np.random.shuffle(rand_select)
+        rand_select = rand_select[:total_ncps-1]
+        all_rand_ncps[rand_select] = 1
+        for i in range(total_ncps):
+            rand_ncps = np.zeros(len(graph.vs))
+            rand_ncps[np.where(all_rand_ncps==1)[0:i]] = 1
+            (index, max_ncps, frac_uncovered, ncp_influence, 
+                ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
+                gamma) = ate(graph, i, lambda0, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "random")
     #     if gtype == "facebook":
     #         ncp_ate = ate(lambda1, lambda2, num_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc)
     #     else: 
     #         ncp_ate = ate(lambda1, lambda2, num_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc)
 
 
-    return
+    return index, max_ncps, frac_uncovered, ncp_influence, ate_without, ate_ncp_bias, ate_estimate_gui, beta, gamma
 
 
 if __name__=='__main__':

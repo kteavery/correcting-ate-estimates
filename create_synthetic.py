@@ -23,5 +23,10 @@ def create_synthetic():
     fire1000.save(cwd+"/synthetic/fire1000.net")
     fire5000.save(cwd+"/synthetic/fire5000.net")
 
+# def plot_graphs(filename):
+#     graph = Graph.read_graph(filename)
+#     plot(graph)
+
 if __name__=='__main__':
     create_synthetic()
+    # plot_graphs("/Users/kavery/workspace/correcting-ate-estimates/synthetic/fire500.net")

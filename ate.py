@@ -4,6 +4,8 @@ from igraph import Graph
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import copy
+import warnings
+warnings.filterwarnings("ignore")
 
 np.random.seed(1)
 
@@ -11,7 +13,7 @@ def spillover_probs(ncps, assignments, adjacency_matrix, degrees, transition_mat
     non_ncp_treatment = assignments * (1-ncps)
     non_ncp_treatment_trans = np.transpose(non_ncp_treatment) / degrees
     non_ncp_treatment_trans[np.isnan(non_ncp_treatment_trans)] = 0
-    print(non_ncp_treatment_trans)
+    # print(non_ncp_treatment_trans)
     non_ncp_treatment_neigh = np.transpose(np.matmul(adjacency_matrix, non_ncp_treatment_trans))
     
     non_ncp_control = (1-assignments) * (1-ncps)
@@ -30,15 +32,15 @@ def spillover_probs(ncps, assignments, adjacency_matrix, degrees, transition_mat
     ncp_control_neigh = np.transpose(np.matmul(adjacency_matrix, ncp_control_trans))
     
     adversarial_influence = np.sum(transition_matrix, axis=0)
-    print("(non)ncps")
-    print(non_ncp_treatment, non_ncp_control, ncp_treatment, ncp_control)
-    print("neighbors")
-    print(non_ncp_treatment_neigh, non_ncp_control_neigh, ncp_treatment_neigh, ncp_control_neigh, adversarial_influence)
+    # print("(non)ncps")
+    # print(non_ncp_treatment, non_ncp_control, ncp_treatment, ncp_control)
+    # print("neighbors")
+    # print(non_ncp_treatment_neigh, non_ncp_control_neigh, ncp_treatment_neigh, ncp_control_neigh, adversarial_influence)
     return non_ncp_treatment_neigh, non_ncp_control_neigh, ncp_treatment_neigh, ncp_control_neigh, adversarial_influence
 
 def outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_matrix, degrees, ncps, stochastic):
     outcome = np.zeros(len(graph.vs))
-    print(outcome)
+    # print(outcome)
     treatment_ncps = cluster_assignments * ncps
     control_ncps = ncps - treatment_ncps
 
@@ -66,14 +68,14 @@ def linear(adjacency_matrix, degrees, assignments, outcome):
 
 def linear_ncp(non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh, assignments, outcome):
     lm = LinearRegression()
-    print(outcome.shape)
+    # print(outcome.shape)
     # print(assignments)
     # print(non_ncp_treatment_neigh)
     # print(ncp_treatment_neigh)
     # print(ncp_control_neigh)
     X = np.array([assignments, non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh])
     # X = X.reshape(-1, 1)
-    print(X.shape)
+    # print(X.shape)
     return lm.fit(np.transpose(X), outcome)
 
 #function(idx, graph.properties, adversaries, outcome.params, ncp.params, treatment.assignments, stochastic.vars, bias.behavior)
@@ -117,15 +119,29 @@ def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adja
 
 def check_set(adjacency_matrix, ncps): # check this? 
     adjacency_ncps = np.matmul(adjacency_matrix, np.transpose(ncps)) + np.transpose(ncps)
-    return sum( np.sum(adjacency_ncps, axis=1) > 0 ) == np.shape(adjacency_matrix)[1]
+    # print(np.sum(adjacency_ncps) > 0)
+    # print("adjacency_ncps")
+    # print(np.sum(adjacency_ncps, axis=0))
+    # print(adjacency_ncps)
+    print((adjacency_ncps > 0 ).sum())
+    print((adjacency_ncps > 0 ).sum() == np.shape(adjacency_matrix)[1])
+    return (adjacency_ncps > 0 ).sum() == np.shape(adjacency_matrix)[1]
 
-def greedy(filename, graph, adjacency_matrix, transition_matrix, weight="influence"):
+def greedy(filename, graph, adjacency_matrix, weight="influence"):
+    dir_graph = Graph.Read_Edgelist(filename, directed=False)
+    adjacency_matrix = np.array(Graph.get_adjacency(dir_graph).data) 
     if weight == "influence":
+        degrees = Graph.outdegree(dir_graph)
+        inverse = np.diag(np.reciprocal( np.array(degrees).astype(float) ))
+        inverse[np.isinf(inverse)] = 0
+        transition_matrix = np.matmul(inverse, np.array(adjacency_matrix.data))
         trans_sum = np.sum(transition_matrix, axis=0)
     else:
         dir_graph = Graph.Read_Edgelist(filename, directed=False)
-        trans_sum = Graph.outdegree(graph)
-        # print(trans_sum)
+        trans_sum = Graph.outdegree(dir_graph)
+    # print("trans_sum")
+    # print(transition_matrix)
+    # print(trans_sum)
     adjacency = copy.deepcopy(adjacency_matrix)
     cover = np.zeros(len(adjacency))
     greedy = np.array([])
@@ -137,10 +153,18 @@ def greedy(filename, graph, adjacency_matrix, transition_matrix, weight="influen
         # print(argmaxs)
         # print(argmax)
         # print(adjacency[argmax]>0)
+        # print(cover)
         
         greedy = np.append(greedy, argmax)
+        # print("greedy")
+        # print(greedy)
         if weight == "influence":
-            for i in greedy:
+            trans_matrix_temp = np.matmul(inverse, np.array(adjacency_matrix.data))
+            # print(trans_matrix_temp.shape)
+            # print("greedy")
+            # print(greedy)
+            for i in greedy.astype(int):
+                # print(trans_matrix_temp[i])
                 trans_matrix_temp[i,:] = 0
                 trans_matrix_temp[:,i] = 0
             trans_sum = np.sum(trans_matrix_temp, axis=0)
@@ -155,27 +179,30 @@ def greedy(filename, graph, adjacency_matrix, transition_matrix, weight="influen
     return greedy 
 
 
-def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern="random", weight="influence", maximum=True):
+def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, weight, maximum):
     ncps = np.zeros(len(graph.vs))
     if pattern == "random":
         if weight == "influence":
             if maximum:
                 while not check_set(adjacency_matrix, ncps):
-                    ncps[transition_matrix[np.argsort(-1*transition_matrix)]]
+                    print(transition_matrix[np.argsort(-1*transition_matrix)])
+                    ncps[transition_matrix[np.argsort(-1*transition_matrix)]] = 1
         else:
             if maximum:
                 i = 1
-                randlist = np.arange(0,11)
+                randlist = np.arange(0,len(graph.vs))
                 np.random.shuffle(randlist)
-                print("rand_list")
-                print(rand_list)
+                # print("rand_list")
+                # print(rand_list)
                 while not check_set(adjacency_matrix, ncps):
                     ncps[randlist[i]] = 1
                     i += 1
 
-    else: # worst-case (dominating)
-        ncp_set = greedy(filename, graph, adjacency_matrix, transition_matrix, weight=weight)
-        print(ncp_set)
+    else: # worst-case (greedy)
+        ncp_set = greedy(filename, graph, adjacency_matrix, weight=weight)
+        ncp_set = np.unique(ncp_set)
+        print("ncp_set")
+        print(len(ncp_set))
         if maximum:
             for idx in ncp_set:
                 ncps[int(idx)] = 1
@@ -190,12 +217,21 @@ def stochastic(n, steps, sd):
             stoc = np.column_stack((stoc, np.transpose(np.random.normal(loc=0, scale=sd, size=n))))
     return stoc
 
-def experiment(filename, lambda0=-1.5, lambda1=0.75, lambda2=0.5, pattern="random", gtype="facebook"):
+def experiment(filename, pattern, weight, gtype, lambda0=-1.5, lambda1=0.75, lambda2=0.5):
     graph = Graph.Read_Edgelist(filename, directed=False)
     degrees = Graph.degree(graph)
     vertices = len(graph.vs)
     adjacency_matrix = np.array(Graph.get_adjacency(graph).data)
-    transition_matrix = np.matmul(np.diag(degrees), np.array(adjacency_matrix.data))
+    inverse = np.diag(np.reciprocal( np.array(degrees).astype(float) ))
+    inverse[np.isinf(inverse)] = 0
+    transition_matrix = np.matmul(inverse, np.array(adjacency_matrix.data))
+    # print("adj")
+    # print(np.array(adjacency_matrix.data))
+    # print("degrees")
+    # print(np.diag(degrees).astype(float))
+    # print(inverse)
+    # print("transition")
+    # print(transition_matrix)
 
     # generate clusters
     clusters = graph.community_infomap()
@@ -216,26 +252,39 @@ def experiment(filename, lambda0=-1.5, lambda1=0.75, lambda2=0.5, pattern="rando
     # ate
     #0, graph.properties, matrix(0,1,graph.properties$n), outcome.params, ncp.params, treatment.assignments, stochastic.vars, bias.behavior)$ATE.adv.gui[1]
     # ate(graph, index, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stochastic, pattern="random"):
-    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")[6]
-    print(non_ncp_ate)
+    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, pattern)[6]
+    # print(non_ncp_ate)
     if gtype == "facebook":
         ncps = np.zeros((vertices-1,))
         ncp_indices = [1,108,349,415,687,699,1685,1913,3438,3981]
         ncps = np.array([ncps[i] for i in ncp_indices])
     else:
-        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern="dominating", weight="degree", maximum=True)
-    print(ncps)
+        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern=pattern, weight=weight, maximum=True)
+    # print("ncps")
+    # print(ncps)
     total_ncps = np.sum(ncps==1)
-    print(total_ncps)
 
     if pattern == "dominating":
         for i in range(total_ncps):
             dom_ncps = np.zeros(len(graph.vs))
-            dom_ncps[np.where(ncps==1)[0:i]] = 1
+            dom_ncps[np.where(ncps==1)[0][0:i]] = 1
+            # print("np.sum(dom_ncps)")
+            # print(i)
+            # print(np.where(ncps==1)[0][0:i])
+            # print(np.sum(dom_ncps))
             (index, max_ncps, frac_uncovered, ncp_influence, 
                 ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
-                gamma) = ate(graph, i, lambda0, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")
-            print(dom_ncps)
+                gamma) = ate(graph, i, lambda0, lambda1, lambda2, dom_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")
+            # ncps = dom_ncps
+
+            frac_ncps = index/len(graph.vs)
+            difference = non_ncp_ate - ate_estimate_gui
+            normalized_diff = difference/non_ncp_ate
+            if frac_ncps < 0.3:
+                print()
+                print(frac_ncps)
+                print(normalized_diff)
+
     else: # random
         all_rand_ncps = np.zeros(len(graph.vs))
         rand_select = np.arange(0,len(graph.vs))
@@ -244,20 +293,31 @@ def experiment(filename, lambda0=-1.5, lambda1=0.75, lambda2=0.5, pattern="rando
         all_rand_ncps[rand_select] = 1
         for i in range(total_ncps):
             rand_ncps = np.zeros(len(graph.vs))
-            rand_ncps[np.where(all_rand_ncps==1)[0:i]] = 1
+            rand_ncps[np.where(all_rand_ncps==1)[0][0:i]] = 1
             (index, max_ncps, frac_uncovered, ncp_influence, 
                 ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
-                gamma) = ate(graph, i, lambda0, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "random")
-    #     if gtype == "facebook":
-    #         ncp_ate = ate(lambda1, lambda2, num_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc)
-    #     else: 
-    #         ncp_ate = ate(lambda1, lambda2, num_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc)
+                gamma) = ate(graph, i, lambda0, lambda1, lambda2, rand_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "random")
+            
+            frac_ncps = index/len(graph.vs)
+            normalized_diff = (non_ncp_ate - ate_estimate_gui)/non_ncp_ate
+            if frac_ncps < 0.3:
+                print()
+                print(frac_ncps)
+                print(normalized_diff)
 
-
-    return index, max_ncps, frac_uncovered, ncp_influence, ate_without, ate_ncp_bias, ate_estimate_gui, beta, gamma
+    return index, frac_uncovered, ncp_influence, ate_without, non_ncp_ate, ate_ncp_bias, ate_estimate_gui, beta, gamma
 
 
 if __name__=='__main__':
     cwd = os.getcwd()
-    experiment(cwd+"/synthetic/small500.net", gtype="small")
+    (index, frac_uncovered, ncp_influence, ate_without, non_ncp_ate,
+        ate_ncp_bias, ate_estimate_gui, beta, 
+        gamma) = experiment(cwd+"/synthetic/fire1000.net", gtype="fire", lambda1=0.25, lambda2=1.0, pattern="dominating", weight="influence")
     # experiment(cwd+"/facebook/facebook_combined.net")
+
+    # frac_ncps = index/500
+    # difference = non_ncp_ate - ate_estimate_gui
+    # normalized_diff = difference/non_ncp_ate
+
+    # print(frac_ncps)
+    # print(normalized_diff)

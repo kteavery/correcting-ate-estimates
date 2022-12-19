@@ -9,31 +9,6 @@ import csv
 import warnings
 warnings.filterwarnings("ignore")
 
-# np.random.seed(1)
-
-def spillover_probs(ncps, assignments, adjacency_matrix, degrees, transition_matrix):
-    non_ncp_treatment = assignments * (1-ncps)
-    non_ncp_treatment_trans = np.transpose(non_ncp_treatment) / degrees
-    non_ncp_treatment_trans[np.isnan(non_ncp_treatment_trans)] = 0
-    non_ncp_treatment_neigh = np.transpose(np.matmul(adjacency_matrix, non_ncp_treatment_trans))
-    
-    non_ncp_control = (1-assignments) * (1-ncps)
-    non_ncp_control_trans = np.transpose(non_ncp_treatment) / degrees
-    non_ncp_control_trans[np.isnan(non_ncp_control_trans)] = 0
-    non_ncp_control_neigh = np.transpose(np.matmul(adjacency_matrix, non_ncp_control_trans))
-    
-    ncp_treatment = assignments * ncps
-    ncp_treatment_trans = np.transpose(ncp_treatment) / degrees
-    ncp_treatment_trans[np.isnan(ncp_treatment_trans)] = 0
-    ncp_treatment_neigh = np.transpose(np.matmul(adjacency_matrix, ncp_treatment_trans))
-    
-    ncp_control = ncps - ncp_treatment
-    ncp_control_trans = np.transpose(ncp_treatment) / degrees
-    ncp_control_trans[np.isnan(ncp_control_trans)] = 0
-    ncp_control_neigh = np.transpose(np.matmul(adjacency_matrix, ncp_control_trans))
-    
-    adversarial_influence = np.sum(transition_matrix, axis=0)
-    return non_ncp_treatment_neigh, non_ncp_control_neigh, ncp_treatment_neigh, ncp_control_neigh, adversarial_influence
 
 def outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_matrix, degrees, ncps, stochastic):
     outcome = np.zeros(len(graph.vs)).astype(float)
@@ -42,7 +17,7 @@ def outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_mat
 
     for i in range(0,3):
         outcome = lambda0 + lambda1*cluster_assignments + lambda2*np.sum(np.transpose(np.matmul(adjacency_matrix, np.diag(outcome)))/degrees, axis=0) + stochastic[:,i]
-        # print(np.sum(np.transpose(np.matmul(adjacency_matrix, np.diag(outcome)))/degrees, axis=0))
+
         intermediate = np.zeros(len(treatment_ncps))
         intermediate[np.where(treatment_ncps==1)] = lambda0
         intermediate[np.where(control_ncps==1)] = lambda0+lambda1
@@ -52,77 +27,44 @@ def outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_mat
     
     return outcome
 
+
 def linear(adjacency_matrix, degrees, assignments, outcome):
     amt_treated = np.transpose(np.matmul(adjacency_matrix, assignments)) / degrees
-    # amt_treated = np.transpose(amt_treated)
     amt_treated[np.isnan(amt_treated)] = 0.0
     lm = LinearRegression()
     X = np.array([assignments, amt_treated])
     return lm.fit(np.transpose(X), outcome)
 
-def linear_ncp(non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh, assignments, outcome):
-    lm = LinearRegression()
-    X = np.array([assignments, non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh])
-    return lm.fit(np.transpose(X), outcome)
 
-#ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, pattern)
 def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stochastic, pattern="random"):
     ate_without = lambda1+lambda2
     uncovered = 1 - np.matmul(ncps, adjacency_matrix) - ncps
     frac_uncovered = np.sum(uncovered)/(len(graph.vs))
-    (non_ncp_treatment_neigh, 
-        non_ncp_control_neigh, 
-        ncp_treatment_neigh, 
-        ncp_control_neigh, 
-        adversarial_influence) = spillover_probs(ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix)
+    ncp_influence = np.sum(transition_matrix, axis=0)
 
     ncp_outcome = outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_matrix, degrees, ncps, stochastic)
-    # print("ncp_outcome")
-    # print(ncp_outcome[:20])
-
-    lin_ncp = linear_ncp(non_ncp_treatment_neigh, ncp_treatment_neigh, ncp_control_neigh, cluster_assignments, ncp_outcome)
-    ate_estimate = lin_ncp.coef_[0]+lin_ncp.coef_[1]
-    ate_ncp_bias = lin_ncp.coef_[2]-lin_ncp.coef_[3]
 
     lin_gui = linear(adjacency_matrix, degrees, cluster_assignments, ncp_outcome)
-    # print("lin_gui")
-    # print(lin_gui.coef_)
     beta = lin_gui.coef_[0]
     gamma = lin_gui.coef_[1]
     ate_estimate_gui = beta+gamma
-    # print(lin_gui)
-    # ate_gui = lin_gui
-
-    # print("ate_estimate_gui")
-    # print(ate_estimate_gui)
-    # print(beta)
-    # print(gamma)
-
-    if pattern == "dominating" or index == 0:
-        max_ncps = False
-    else:
-        max_ncps = True
     
-    ncp_influence = np.sum(adversarial_influence[np.where(ncps==1)])/(len(graph.vs))
+    ncp_influence = np.sum(ncp_influence[np.where(ncps==1)])/(len(graph.vs))
 
-    return index, max_ncps, frac_uncovered, ncp_influence, ate_without, ate_ncp_bias, ate_estimate_gui, beta, gamma
+    return index, frac_uncovered, ncp_influence, ate_without, ate_estimate_gui, beta, gamma
 
-def check_set(adjacency_matrix, ncps): # check this? 
+def check_vertex_cover(adjacency_matrix, ncps): 
     adjacency_ncps = np.transpose( np.matmul(adjacency_matrix, np.transpose(ncps)) ) + np.transpose(ncps)
     return (adjacency_ncps > 0 ).sum() == np.shape(adjacency_matrix)[1]
 
-def greedy(filename, graph, adjacency_matrix, weight="influence"):
+def greedy(filename, graph, adjacency_matrix, gtype):
     dir_graph = Graph.Read_Edgelist(filename, directed=False)
     adjacency_matrix = np.array(Graph.get_adjacency(dir_graph).data) 
-    if weight == "influence":
-        degrees = Graph.outdegree(dir_graph)
-        inverse = np.diag(np.reciprocal( np.array(degrees).astype(float) ))
-        inverse[np.isinf(inverse)] = 0
-        transition_matrix = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
-        trans_sum = np.sum(transition_matrix, axis=0)
-    else:
-        dir_graph = Graph.Read_Edgelist(filename, directed=False)
-        trans_sum = Graph.outdegree(dir_graph)
+    degrees = Graph.outdegree(dir_graph)
+    inverse = np.diag(np.reciprocal( np.array(degrees).astype(float) ))
+    inverse[np.isinf(inverse)] = 0
+    transition_matrix = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
+    trans_sum = np.sum(transition_matrix, axis=0)
 
     adjacency = copy.deepcopy(adjacency_matrix)
     cover = np.zeros(len(adjacency))
@@ -134,55 +76,44 @@ def greedy(filename, graph, adjacency_matrix, weight="influence"):
         cover[argmax] = 1
         
         greedy = np.append(greedy, argmax)
-        if weight == "influence":
-            trans_matrix_temp = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
-            for i in greedy.astype(int):
-                trans_matrix_temp[i,:] = 0
-                trans_matrix_temp[:,i] = 0
-            trans_sum = np.sum(trans_matrix_temp, axis=0)
-        else: 
-            directed = np.array(Graph.get_adjacency(dir_graph).data) 
-            directed[cover>0]=0 
-            dir_graph = Graph.Adjacency(directed)
-            trans_sum = Graph.outdegree(dir_graph)-cover
+        trans_matrix_temp = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
+        for i in greedy.astype(int):
+            trans_matrix_temp[i,:] = 0
+            trans_matrix_temp[:,i] = 0
+        trans_sum = np.sum(trans_matrix_temp, axis=0)
+
     return greedy 
 
 
-def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, weight, maximum):
+def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, maximum, gtype):
     ncps = np.zeros(len(graph.vs))
     if pattern == "random":
-        if weight == "influence":
-            if maximum:
-                while not check_set(adjacency_matrix, ncps):
-                    print(transition_matrix[np.argsort(-1*transition_matrix)])
-                    ncps[transition_matrix[np.argsort(-1*transition_matrix)]] = 1
-        else:
-            if maximum:
-                i = 1
-                randlist = np.arange(0,len(graph.vs))
-                np.random.shuffle(randlist)
-                while not check_set(adjacency_matrix, ncps):
-                    ncps[randlist[i]] = 1
-                    i += 1
+        if maximum:
+            i = 1
+            randlist = np.arange(0,len(graph.vs))
+            np.random.shuffle(randlist)
+            while not check_vertex_cover(adjacency_matrix, ncps):
+                ncps[randlist[i]] = 1
+                i += 1
 
     else: # worst-case (greedy)
-        ncp_set = greedy(filename, graph, adjacency_matrix, weight=weight)
+        ncp_set = greedy(filename, graph, adjacency_matrix, gtype)
         ncp_set = np.unique(ncp_set)
         if maximum:
             for idx in ncp_set:
                 ncps[int(idx)] = 1
     return ncps
 
-def stochastic(n, steps, sd):
+def stochastic(n, rounds, sd):
     stoc = np.array([])
-    for i in range(steps):
+    for i in range(rounds):
         if i==0:
             stoc = np.transpose(np.random.normal(loc=0, scale=sd, size=n))
         else: 
             stoc = np.column_stack((stoc, np.transpose(np.random.normal(loc=0, scale=sd, size=n))))
     return stoc
 
-def experiment(filename, pattern, weight, gtype, lambda1, lambda2, lambda0=-1.5):
+def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
     graph = Graph.Read_Edgelist(filename, directed=False)
     # adjacency_matrix = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500adj.csv", delimiter=",", dtype=int)
     # degrees = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500degrees.csv", delimiter=",", dtype=int)
@@ -192,77 +123,46 @@ def experiment(filename, pattern, weight, gtype, lambda1, lambda2, lambda0=-1.5)
     inverse = np.diag(np.reciprocal( np.array(degrees).astype(float) ))
     inverse[np.isinf(inverse)] = 0
     transition_matrix = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
-    # print("degrees")
-    # print(np.diag(degrees).astype(float))
-    # print(inverse)
-    # print("transition")
-    # print(transition_matrix)
+
+    if gtype == "facebook":
+        stoc = np.zeros((vertices, 3))
+    else: 
+        stoc = stochastic(vertices, 3, 0.1)
 
     # generate clusters
     clusters = graph.community_infomap()
     assignments = np.random.binomial(1, 0.5, len(clusters))
-    # print("assignments")
-    # print(assignments)
+
     cluster_assignments = np.zeros(len(graph.vs))
     for i in range(len(clusters)):
         for v in clusters[i]:
             cluster_assignments[v] = assignments[i]
-        # curr_cluster = np.array(clusters[i])
-        # curr_cluster.fill(assignments[i])
-        # cluster_assignments = np.append(cluster_assignments, curr_cluster)
-
-    # with open('/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500_assignments.csv') as f:
-    #     reader = csv.reader(f)
-    #     cluster_assignments = np.array(next(reader)).astype(int)
-
-    # print("cluster")
-    # print(cluster_assignments)
-    if gtype == "facebook":
-        stoc = np.zeros((len(graph.vs), 3))
-    else: 
-        stoc = stochastic(vertices, 3, 0.1)
-    # print(stoc.shape)
+    
     # ate
-    #0, graph.properties, matrix(0,1,graph.properties$n), outcome.params, ncp.params, treatment.assignments, stochastic.vars, bias.behavior)$ATE.adv.gui[1]
-    # ate(graph, index, lambda1, lambda2, ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stochastic, pattern="random"):
-    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, pattern)[6]
-    # print("non_ncp_ate")
-    # print(non_ncp_ate)
+    non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, pattern)[4]
+
     if gtype == "facebook":
         ncps = np.zeros((vertices,))
-        ncp_indices = [0,107,348,414,686,698,1684,1912,3437,3980]
-        # ncps = np.array([ncps[i] for i in ncp_indices])
+        ncp_indices =  [0,107,348,414,686,698,1684,1912,3437,3980] # nodes used to make graph
         ncps[ncp_indices] = 1
     else:
-        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern="dominating", weight="influence", maximum=True)
-        # print("ncps")
-        # print(ncps)
+        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, gtype=gtype, pattern="greedy", maximum=True)
     total_ncps = np.sum(ncps==1)
-    # print("total_ncps")
-    # print(total_ncps)
 
     frac_ncps_ary = []
     normalized_diff_ary = []
-    if pattern == "dominating":
+    if pattern == "greedy":
         for i in range(total_ncps):
-            dom_ncps = np.zeros(len(graph.vs))
-            dom_ncps[np.where(ncps==1)[0][0:i]] = 1
-            # print("np.sum(dom_ncps)")
-            # print(i)
-            # print(np.where(ncps==1)[0][0:i])
-            # print(np.sum(dom_ncps))
-            (index, max_ncps, frac_uncovered, ncp_influence, 
-                ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
-                gamma) = ate(graph, i, lambda0, lambda1, lambda2, dom_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "dominating")
-            # ncps = dom_ncps
-
+            greedy_ncps = np.zeros(len(graph.vs))
+            greedy_ncps[np.where(ncps==1)[0][0:i]] = 1
+            (index, frac_uncovered, ncp_influence, 
+                ate_without, ate_estimate_gui, beta, 
+                gamma) = ate(graph, i, lambda0, lambda1, lambda2, greedy_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "greedy")
+                
             frac_ncps = index/len(graph.vs)
             difference = non_ncp_ate - ate_estimate_gui
             normalized_diff = difference/non_ncp_ate
-            if frac_ncps < 0.3:
-                # print()
-                # print(frac_ncps)
-                # print(normalized_diff)
+            if frac_ncps < 0.4:
                 frac_ncps_ary.append(frac_ncps)
                 normalized_diff_ary.append(normalized_diff)
 
@@ -275,75 +175,31 @@ def experiment(filename, pattern, weight, gtype, lambda1, lambda2, lambda0=-1.5)
         for i in range(total_ncps):
             rand_ncps = np.zeros(len(graph.vs))
             rand_ncps[np.where(all_rand_ncps==1)[0][0:i]] = 1
-            (index, max_ncps, frac_uncovered, ncp_influence, 
-                ate_without, ate_ncp_bias, ate_estimate_gui, beta, 
+            (index, frac_uncovered, ncp_influence, 
+                ate_without, ate_estimate_gui, beta, 
                 gamma) = ate(graph, i, lambda0, lambda1, lambda2, rand_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "random")
             
             frac_ncps = index/len(graph.vs)
             normalized_diff = (non_ncp_ate - ate_estimate_gui)/non_ncp_ate
-            if frac_ncps < 0.3:
-                # print()
-                # print(frac_ncps)
-                # print(normalized_diff)
+            if frac_ncps < 0.4:
                 frac_ncps_ary.append(frac_ncps)
                 normalized_diff_ary.append(normalized_diff)
 
-    # return index, frac_uncovered, ncp_influence, ate_without, non_ncp_ate, ate_ncp_bias, ate_estimate_gui, beta, gamma
     return frac_ncps_ary, normalized_diff_ary
-
-def plot_results(dirname):
-    avg_frac = np.array([])
-    avg_diff = np.array([])
-    minimum = 1e10
-    for i in range(0, 10):
-        f = open(dirname+"/"+str(i)+".csv")
-        reader = csv.reader(f)
-        if i==0:
-            avg_frac = np.array([next(reader)]).astype(float)
-            avg_diff = np.array([next(reader)]).astype(float)
-            minimum = len(avg_frac[0])
-            print(avg_frac.shape)
-        else:
-            new_avg_frac = np.array([next(reader)]).astype(float)
-            new_avg_diff = np.array([next(reader)]).astype(float)
-            print(new_avg_frac.shape)
-            minimum = min(minimum, len(new_avg_frac[0]))
-            print(minimum)
-            print(avg_frac[:,:minimum].shape)
-
-            avg_frac = np.append(avg_frac[:,:minimum], new_avg_frac[:,:minimum], axis=0)
-            avg_diff = np.append(avg_diff[:,:minimum], new_avg_diff[:,:minimum], axis=0)
-            print(avg_frac.shape)
-    # print(avg_frac)
-    print(avg_diff.shape)
-    ci = 1.96 * np.std(np.array(avg_diff).astype(float))/np.sqrt(len(np.array(avg_frac).astype(float)))
-
-    xmean = np.mean(avg_frac, axis=0)
-    ymean = np.mean(avg_diff, axis=0) 
-
-    fig, ax = plt.subplots()
-    ax.plot( xmean, ymean )
-    ax.fill_between(xmean, (ymean-ci), (ymean+ci), color='b', alpha=.1)
-
-    # plt.plot( xmean, ymean )
-    plt.show()
 
 
 if __name__=='__main__':
     cwd = os.getcwd()
-    code = "fire"
 
-    # for i in range(0,10):
-    #     frac_ncps, normalized_diff = experiment(cwd+"/synthetic/"+code+"1000.net", gtype=code, lambda1=0.25, lambda2=1.0, pattern="dominating", weight="degree")
-    #     plt.plot(frac_ncps, normalized_diff)
-    #     # plt.show()
+    code = "small"
+    for i in range(0,1):
+        frac_ncps, normalized_diff = experiment(cwd+"/synthetic/"+code+"1000.net", gtype=code, lambda1=0.25, lambda2=1.0, pattern="greedy")
+        plt.plot(frac_ncps, normalized_diff)
+        plt.show()
 
-    #     f = open("/Users/kavery/workspace/correcting-ate-estimates/results/"+code+"_greedy_025_1/"+str(i)+".csv", 'w')
-    #     writer = csv.writer(f)
-    #     writer.writerow(frac_ncps)
-    #     writer.writerow(normalized_diff)
-    #     f.close()
-    #     print(i)
-
-    plot_results("/Users/kavery/workspace/correcting-ate-estimates/results/small_greedy_025_1")
-
+        f = open("/Users/kavery/workspace/correcting-ate-estimates/results/test/"+str(i)+".csv", 'w')
+        writer = csv.writer(f)
+        writer.writerow(frac_ncps)
+        writer.writerow(normalized_diff)
+        f.close()
+    print("done")

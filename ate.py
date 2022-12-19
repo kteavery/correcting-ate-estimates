@@ -53,7 +53,7 @@ def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adja
 
     return index, frac_uncovered, ncp_influence, ate_without, ate_estimate_peer, beta, gamma
 
-def check_vertex_cover(adjacency_matrix, ncps): 
+def vertex_cover(adjacency_matrix, ncps): 
     adjacency_ncps = np.transpose( np.matmul(adjacency_matrix, np.transpose(ncps)) ) + np.transpose(ncps)
     return (adjacency_ncps > 0 ).sum() == np.shape(adjacency_matrix)[1]
 
@@ -91,7 +91,7 @@ def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern,
         i = 1
         randlist = np.arange(0,len(graph.vs))
         np.random.shuffle(randlist)
-        while not check_vertex_cover(adjacency_matrix, ncps):
+        while not vertex_cover(adjacency_matrix, ncps):
             ncps[randlist[i]] = 1
             i += 1
 

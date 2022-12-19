@@ -85,23 +85,21 @@ def greedy(filename, graph, adjacency_matrix, gtype):
     return greedy 
 
 
-def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, maximum, gtype):
+def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, gtype):
     ncps = np.zeros(len(graph.vs))
     if pattern == "random":
-        if maximum:
-            i = 1
-            randlist = np.arange(0,len(graph.vs))
-            np.random.shuffle(randlist)
-            while not check_vertex_cover(adjacency_matrix, ncps):
-                ncps[randlist[i]] = 1
-                i += 1
+        i = 1
+        randlist = np.arange(0,len(graph.vs))
+        np.random.shuffle(randlist)
+        while not check_vertex_cover(adjacency_matrix, ncps):
+            ncps[randlist[i]] = 1
+            i += 1
 
     else: # worst-case (greedy)
         ncp_set = greedy(filename, graph, adjacency_matrix, gtype)
         ncp_set = np.unique(ncp_set)
-        if maximum:
-            for idx in ncp_set:
-                ncps[int(idx)] = 1
+        for idx in ncp_set:
+            ncps[int(idx)] = 1
     return ncps
 
 def stochastic(n, rounds, sd):
@@ -146,7 +144,7 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
         ncp_indices =  [0,107,348,414,686,698,1684,1912,3437,3980] # nodes used to make graph
         ncps[ncp_indices] = 1
     else:
-        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, gtype=gtype, pattern="greedy", maximum=True)
+        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, gtype=gtype, pattern="greedy")
     total_ncps = np.sum(ncps==1)
 
     frac_ncps_ary = []

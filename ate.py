@@ -44,20 +44,20 @@ def ate(graph, index, lambda0, lambda1, lambda2, ncps, cluster_assignments, adja
 
     ncp_outcome = outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_matrix, degrees, ncps, stochastic)
 
-    lin_gui = linear(adjacency_matrix, degrees, cluster_assignments, ncp_outcome)
-    beta = lin_gui.coef_[0]
-    gamma = lin_gui.coef_[1]
-    ate_estimate_gui = beta+gamma
+    lin_peer = linear(adjacency_matrix, degrees, cluster_assignments, ncp_outcome)
+    beta = lin_peer.coef_[0]
+    gamma = lin_peer.coef_[1]
+    ate_estimate_peer = beta+gamma
     
     ncp_influence = np.sum(ncp_influence[np.where(ncps==1)])/(len(graph.vs))
 
-    return index, frac_uncovered, ncp_influence, ate_without, ate_estimate_gui, beta, gamma
+    return index, frac_uncovered, ncp_influence, ate_without, ate_estimate_peer, beta, gamma
 
 def check_vertex_cover(adjacency_matrix, ncps): 
     adjacency_ncps = np.transpose( np.matmul(adjacency_matrix, np.transpose(ncps)) ) + np.transpose(ncps)
     return (adjacency_ncps > 0 ).sum() == np.shape(adjacency_matrix)[1]
 
-def greedy(filename, graph, adjacency_matrix, gtype):
+def greedy(filename, graph, adjacency_matrix, facebook):
     dir_graph = Graph.Read_Edgelist(filename, directed=False)
     adjacency_matrix = np.array(Graph.get_adjacency(dir_graph).data) 
     degrees = Graph.outdegree(dir_graph)
@@ -85,7 +85,7 @@ def greedy(filename, graph, adjacency_matrix, gtype):
     return greedy 
 
 
-def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, gtype):
+def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern, facebook):
     ncps = np.zeros(len(graph.vs))
     if pattern == "random":
         i = 1
@@ -96,7 +96,7 @@ def generate_ncps(filename, graph, adjacency_matrix, transition_matrix, pattern,
             i += 1
 
     else: # worst-case (greedy)
-        ncp_set = greedy(filename, graph, adjacency_matrix, gtype)
+        ncp_set = greedy(filename, graph, adjacency_matrix, facebook)
         ncp_set = np.unique(ncp_set)
         for idx in ncp_set:
             ncps[int(idx)] = 1
@@ -111,7 +111,7 @@ def stochastic(n, rounds, sd):
             stoc = np.column_stack((stoc, np.transpose(np.random.normal(loc=0, scale=sd, size=n))))
     return stoc
 
-def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
+def experiment(filename, pattern, facebook, lambda1, lambda2, lambda0=-1.5):
     graph = Graph.Read_Edgelist(filename, directed=False)
     # adjacency_matrix = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500adj.csv", delimiter=",", dtype=int)
     # degrees = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500degrees.csv", delimiter=",", dtype=int)
@@ -122,7 +122,7 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
     inverse[np.isinf(inverse)] = 0
     transition_matrix = np.transpose( np.matmul(inverse, np.array(adjacency_matrix.data)) )
 
-    if gtype == "facebook":
+    if facebook:
         stoc = np.zeros((vertices, 3))
     else: 
         stoc = stochastic(vertices, 3, 0.1)
@@ -139,12 +139,12 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
     # ate
     non_ncp_ate = ate(graph, 0, lambda0, lambda1, lambda2, np.zeros(vertices), cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, pattern)[4]
 
-    if gtype == "facebook":
+    if facebook:
         ncps = np.zeros((vertices,))
         ncp_indices =  [0,107,348,414,686,698,1684,1912,3437,3980] # nodes used to make graph
         ncps[ncp_indices] = 1
     else:
-        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, gtype=gtype, pattern="greedy")
+        ncps = generate_ncps(filename, graph, adjacency_matrix, transition_matrix, facebook=facebook, pattern="greedy")
     total_ncps = np.sum(ncps==1)
 
     frac_ncps_ary = []
@@ -154,11 +154,11 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
             greedy_ncps = np.zeros(len(graph.vs))
             greedy_ncps[np.where(ncps==1)[0][0:i]] = 1
             (index, frac_uncovered, ncp_influence, 
-                ate_without, ate_estimate_gui, beta, 
+                ate_without, ate_estimate_peer, beta, 
                 gamma) = ate(graph, i, lambda0, lambda1, lambda2, greedy_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "greedy")
                 
             frac_ncps = index/len(graph.vs)
-            difference = non_ncp_ate - ate_estimate_gui
+            difference = non_ncp_ate - ate_estimate_peer
             normalized_diff = difference/non_ncp_ate
             if frac_ncps < 0.4:
                 frac_ncps_ary.append(frac_ncps)
@@ -174,11 +174,11 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
             rand_ncps = np.zeros(len(graph.vs))
             rand_ncps[np.where(all_rand_ncps==1)[0][0:i]] = 1
             (index, frac_uncovered, ncp_influence, 
-                ate_without, ate_estimate_gui, beta, 
+                ate_without, ate_estimate_peer, beta, 
                 gamma) = ate(graph, i, lambda0, lambda1, lambda2, rand_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "random")
             
             frac_ncps = index/len(graph.vs)
-            normalized_diff = (non_ncp_ate - ate_estimate_gui)/non_ncp_ate
+            normalized_diff = (non_ncp_ate - ate_estimate_peer)/non_ncp_ate
             if frac_ncps < 0.4:
                 frac_ncps_ary.append(frac_ncps)
                 normalized_diff_ary.append(normalized_diff)
@@ -191,7 +191,7 @@ if __name__=='__main__':
 
     code = "small"
     for i in range(0,1):
-        frac_ncps, normalized_diff = experiment(cwd+"/synthetic/"+code+"1000.net", gtype=code, lambda1=0.25, lambda2=1.0, pattern="greedy")
+        frac_ncps, normalized_diff = experiment(cwd+"/synthetic/"+code+"1000.net", facebook=False, lambda1=0.25, lambda2=1.0, pattern="greedy")
         plt.plot(frac_ncps, normalized_diff)
         plt.show()
 

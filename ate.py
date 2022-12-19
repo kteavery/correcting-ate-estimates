@@ -17,7 +17,7 @@ def outcome(graph, lambda0, lambda1, lambda2, cluster_assignments, adjacency_mat
 
     for i in range(0,3):
         outcome = lambda0 + lambda1*cluster_assignments + lambda2*np.sum(np.transpose(np.matmul(adjacency_matrix, np.diag(outcome)))/degrees, axis=0) + stochastic[:,i]
-        
+
         intermediate = np.zeros(len(treatment_ncps))
         intermediate[np.where(treatment_ncps==1)] = lambda0
         intermediate[np.where(control_ncps==1)] = lambda0+lambda1
@@ -115,6 +115,8 @@ def stochastic(n, rounds, sd):
 
 def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
     graph = Graph.Read_Edgelist(filename, directed=False)
+    # adjacency_matrix = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500adj.csv", delimiter=",", dtype=int)
+    # degrees = np.loadtxt("/Users/kavery/workspace/correcting-ate-estimates/synthetic/clusters/fire500degrees.csv", delimiter=",", dtype=int)
     degrees = Graph.degree(graph)
     vertices = len(graph.vs)
     adjacency_matrix = np.array(Graph.get_adjacency(graph).data)
@@ -156,7 +158,7 @@ def experiment(filename, pattern, gtype, lambda1, lambda2, lambda0=-1.5):
             (index, frac_uncovered, ncp_influence, 
                 ate_without, ate_estimate_gui, beta, 
                 gamma) = ate(graph, i, lambda0, lambda1, lambda2, greedy_ncps, cluster_assignments, adjacency_matrix, degrees, transition_matrix, stoc, "greedy")
-
+                
             frac_ncps = index/len(graph.vs)
             difference = non_ncp_ate - ate_estimate_gui
             normalized_diff = difference/non_ncp_ate
